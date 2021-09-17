@@ -1,0 +1,50 @@
+---
+- hosts: all
+  gather_facts: no
+  vars:
+    date: "{{ lookup('pipe', 'date +%m-%d-%Y') }}"
+    mounts: "{{ mount_file }}"
+  tasks: 
+  - name: Copying files
+    ansible.builtin.copy:
+      src: /etc/fstab
+      dest: /etc/fstab_{{ date }}.bkp
+  - name: Backing up the old 9th Sep fstab file
+    ansible.builtin.shell: |
+      cat /etc/fstab.Sep17.bkp|grep -v "#" > /var/tmp/fstab_change
+  - name: Mounted NFS file systems
+    shell: mount|grep -w nfs4|awk '{print $3}'
+    register: shell_result
+  - debug:
+      var: shell_result.stdout_lines
+  - fail:
+      msg: There is no NFS Filesystems mounted
+    when: shell_result.stdout_lines | length == 0
+  - name: unmounting NFS value
+    shell: umount {{ item }}
+    with_items: "{{ shell_result.stdout_lines }}"
+    ignore_errors: yes
+  - name: After unmount df -h|grep -i nfs output
+    shell: mount|grep -w nfs4|awk '{print $3}'
+    register: shell_result1
+  - debug:
+      msg: There are no NFS mounts on the server {{ inventory_hostname }}
+    when: shell_result1.stdout_lines | length == 0
+  - debug:
+      msg: "Still '{{ shell_result1.stdout_lines }}' NFS mounts are mounted on '{{ inventory_hostname }}' server"
+  - name: Kill the used NFS systems
+    shell: fuser -k {{ item }}
+    with_items: "{{ shell_result1.stdout_lines }}"
+    ignore_errors: yes
+  - name: unmounting NFS value
+    shell: umount {{ item }}
+    with_items: "{{ shell_result1.stdout_lines }}"
+  - name: After Killed the  nfs used FS
+    shell: mount|grep -w nfs4|awk '{print $3}'
+    register: shell_result2
+  - debug:
+      var: shell_result2.stdout_lines
+  - name: overwrite the old fstab file with new
+    shell: mv /var/tmp/fstab_change /etc/fstab
+  - shell: mount -a
+
